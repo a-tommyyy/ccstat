@@ -6,22 +6,23 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/atomiyama/ccstat/pkg/ccstat"
 	"github.com/spf13/cobra"
 )
 
 // scopeCmd represents the scope command
 var scopeCmd = &cobra.Command{
-	Use:   "scope",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:        "scope [flags]",
+	Short:      "Aggregate sum of insertion/deletion line count by commit scope",
+	ArgAliases: []string{"REPO_PATH"},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("scope called")
+		res, err := ccstat.AggByScope()
+		if err != nil {
+			os.Exit(1)
+		}
+		fmt.Println(res)
 	},
 }
 
