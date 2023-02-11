@@ -10,12 +10,18 @@ import (
 )
 
 const (
-	hashFmt      = "HASH:%H"
-	treeFmt      = "TREE:%T"
-	authorFmt    = "AUTHOR:%an"
-	committerFmt = "COMMITTER:%cn"
-	subjectFmt   = "SUBJECT:%s"
-	bodyFmt      = "BODY:%b"
+	hashKey      = "HASH"
+	hashFmt      = hashKey + ":%H"
+	treeKey      = "TREE"
+	treeFmt      = treeKey + ":%T"
+	authorKey    = "AUTHOR"
+	authorFmt    = authorKey + ":%an"
+	committerKey = "COMMITTER"
+	committerFmt = committerKey + ":%cn"
+	subjectKey   = "SUBJECT"
+	subjectFmt   = subjectKey + ":%s"
+	bodyKey      = "BODY"
+	bodyFmt      = bodyKey + ":%b"
 	separator    = "@@__GIT_LOG_SEPARATOR__@@"
 	delimiter    = "@@__GIT_LOG_DELIMITER__@@"
 
@@ -26,7 +32,7 @@ const (
 		committerFmt + delimiter +
 		subjectFmt + delimiter +
 		bodyFmt
-	prettyFmt = "--pretty\"" + logFmt + "\""
+	prettyFmt = "--pretty=\"" + logFmt + "\""
 )
 
 type Commit struct {
@@ -36,12 +42,18 @@ type Commit struct {
 	Committer string
 	Subject   string
 	Body      string
+	Stat      *CommitStat
 }
 
 type ConventionalCommit struct {
 	Commit *Commit
 	Scope  string
 	Type   string
+}
+
+type CommitStat struct {
+	Insertion int
+	Deletion  int
 }
 
 type GitConfig struct {
@@ -52,7 +64,7 @@ type GitClient interface {
 	CanExec() error
 	IsInsideWorkTree() error
 	Exec(string, ...string) (string, error)
-	Logs() ([]Commit, error)
+	Logs() ([]*Commit, error)
 }
 
 type gitClientImpl struct {
@@ -113,16 +125,73 @@ func (client *gitClientImpl) Exec(subcmd string, args ...string) (string, error)
 	return strings.TrimRight(strings.TrimSpace(out.String()), "\000"), nil
 }
 
-func (client *gitClientImpl) Logs() ([]Commit, error) {
+func (client *gitClientImpl) Logs() ([]*Commit, error) {
 	args := []string{
 		prettyFmt,
+		"--no-decorate",
 		"--no-merges",
 		"--shortstat",
-		"-1", // For Testing
 	}
-	_, err := client.Exec("log", args...)
+	res, err := client.Exec("log", args...)
 	if err != nil {
 		return nil, err
 	}
-	return []Commit{}, nil
+	return client.parseCommits(res)
+}
+
+func (client *gitClientImpl) parseCommits(logs string) ([]*Commit, error) {
+	lines := strings.Split(logs, separator)[1:]
+
+	commits := make([]*Commit, len(lines))
+	for i, line := range lines {
+		commits[i] = client.parseCommit(&line)
+	}
+	return commits, nil
+}
+
+func (client *gitClientImpl) parseCommit(log *string) *Commit {
+	segments := strings.Split(*log, delimiter)
+	commit := &Commit{}
+
+	for _, segment := range segments {
+		endFieldIdx := strings.Index(segment, ":")
+		field := segment[0:endFieldIdx]
+		content := segment[endFieldIdx+1:]
+
+		switch field {
+		case hashKey:
+			commit.Hash = content
+		case treeKey:
+			commit.Tree = content
+		case authorKey:
+			commit.Author = content
+		case committerKey:
+			commit.Committer = content
+		case subjectKey:
+			commit.Subject = content
+		case bodyKey:
+			commit.Body = client.parseCommitBody(content)
+		}
+	}
+	fmt.Println(commit.Body)
+	return commit
+}
+
+func (client *gitClientImpl) parseCommitBody(body string) string {
+	newLineDelimiter := "\n"
+	body = strings.NewReplacer(
+		"\r\n",
+		newLineDelimiter,
+		"\r",
+		newLineDelimiter,
+	).Replace(body)
+
+	//TODO: Slice stat segment
+
+	body = strings.TrimSpace(body)
+	body = strings.Trim(body, "\"")
+	body = strings.TrimSpace(body)
+	body = strings.Trim(body, "\"")
+	body = strings.TrimSpace(body)
+	return body
 }
