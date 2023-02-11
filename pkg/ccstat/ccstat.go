@@ -2,6 +2,13 @@ package ccstat
 
 import "fmt"
 
+type StatRow struct {
+	Index     string
+	Insertion int
+	Deletion  int
+	SumOfDiff int
+}
+
 func AggByScope() (string, error) {
 	client := NewGitClient(&GitConfig{})
 
@@ -9,17 +16,21 @@ func AggByScope() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, c := range commits {
-		fmt.Printf(
-			"RAWHEADER:%s\nTYPE:%s\nSCOPE:%s\nSUBJECT:%s\nINSERTION:%v\nDELETION:%v\n",
-			c.RawCommit.Subject,
-			c.Type,
-			c.Scope,
-			c.Subject,
-			c.RawCommit.Stat.Insertion,
-			c.RawCommit.Stat.Deletion,
-		)
-		fmt.Println("----END COMMIT-----")
+	result := make(map[string]*StatRow)
+	for _, commit := range commits {
+		index := commit.Scope
+		if index == "" {
+			index = "None"
+		}
+		if result[index] == nil {
+			result[index] = &StatRow{Index: commit.Scope}
+		}
+		result[index].Insertion += commit.RawCommit.Stat.Insertion
+		result[index].Deletion += commit.RawCommit.Stat.Deletion
+		result[index].SumOfDiff = result[index].Insertion + result[index].Deletion
+	}
+	for key, value := range result {
+		fmt.Printf("SCOPE:%s\tINSERT:%v\tDELETE:%v\tSUM:%v\n", key, value.Insertion, value.Deletion, value.SumOfDiff)
 	}
 	return "", nil
 }
