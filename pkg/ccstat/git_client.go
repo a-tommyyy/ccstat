@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -35,6 +37,13 @@ const (
 	prettyFmt = "--pretty=\"" + logFmt + "\""
 )
 
+var (
+	statRe = regexp.MustCompile(
+		`(?P<file>[\d]*) files? changed(?:, (?P<insertion>[\d]*) insertions\(\+\))?(?:, (?P<deletion>[\d]*) deletions\(\-\))?`,
+	)
+	headerRe = regexp.MustCompile(`^(?P<type>\w*)(?:\((?P<scope>.*)\))?: (?P<subject>.*)$`)
+)
+
 type Commit struct {
 	Hash      string
 	Tree      string
@@ -46,14 +55,17 @@ type Commit struct {
 }
 
 type ConventionalCommit struct {
-	Commit *Commit
-	Scope  string
-	Type   string
+	Type      string
+	Scope     string
+	Subject   string
+	Body      string
+	RawCommit *Commit
 }
 
 type CommitStat struct {
-	Insertion int
-	Deletion  int
+	FileChanged int
+	Insertion   int
+	Deletion    int
 }
 
 type GitConfig struct {
@@ -64,7 +76,7 @@ type GitClient interface {
 	CanExec() error
 	IsInsideWorkTree() error
 	Exec(string, ...string) (string, error)
-	Logs() ([]*Commit, error)
+	Logs() ([]*ConventionalCommit, error)
 }
 
 type gitClientImpl struct {
@@ -125,7 +137,7 @@ func (client *gitClientImpl) Exec(subcmd string, args ...string) (string, error)
 	return strings.TrimRight(strings.TrimSpace(out.String()), "\000"), nil
 }
 
-func (client *gitClientImpl) Logs() ([]*Commit, error) {
+func (client *gitClientImpl) Logs() ([]*ConventionalCommit, error) {
 	args := []string{
 		prettyFmt,
 		"--no-decorate",
@@ -139,18 +151,40 @@ func (client *gitClientImpl) Logs() ([]*Commit, error) {
 	return client.parseCommits(res)
 }
 
-func (client *gitClientImpl) parseCommits(logs string) ([]*Commit, error) {
+func (client *gitClientImpl) parseCommits(logs string) ([]*ConventionalCommit, error) {
 	lines := strings.Split(logs, separator)[1:]
 
-	commits := make([]*Commit, len(lines))
+	commits := make([]*ConventionalCommit, len(lines))
 	for i, line := range lines {
-		commits[i] = client.parseCommit(&line)
+		commits[i] = client.parseConventionalCommit(line)
 	}
 	return commits, nil
 }
 
-func (client *gitClientImpl) parseCommit(log *string) *Commit {
-	segments := strings.Split(*log, delimiter)
+func (client *gitClientImpl) parseConventionalCommit(log string) *ConventionalCommit {
+	commit := client.parseCommit(log)
+	conventionalCommit := &ConventionalCommit{RawCommit: commit}
+	if headerRe.MatchString(commit.Subject) {
+		match := headerRe.FindStringSubmatch(commit.Subject)
+		for i, name := range headerRe.SubexpNames() {
+			if i != 0 && name != "" {
+				switch name {
+				case "type":
+					conventionalCommit.Type = match[i]
+				case "scope":
+					conventionalCommit.Scope = match[i]
+				case "subject":
+					conventionalCommit.Subject = match[i]
+				}
+			}
+
+		}
+	}
+	return conventionalCommit
+}
+
+func (client *gitClientImpl) parseCommit(log string) *Commit {
+	segments := strings.Split(log, delimiter)
 	commit := &Commit{}
 
 	for _, segment := range segments {
@@ -171,9 +205,9 @@ func (client *gitClientImpl) parseCommit(log *string) *Commit {
 			commit.Subject = content
 		case bodyKey:
 			commit.Body = client.parseCommitBody(content)
+			commit.Stat = client.parseCommitStat(content)
 		}
 	}
-	fmt.Println(commit.Body)
 	return commit
 }
 
@@ -186,12 +220,36 @@ func (client *gitClientImpl) parseCommitBody(body string) string {
 		newLineDelimiter,
 	).Replace(body)
 
-	//TODO: Slice stat segment
-
 	body = strings.TrimSpace(body)
 	body = strings.Trim(body, "\"")
 	body = strings.TrimSpace(body)
 	body = strings.Trim(body, "\"")
 	body = strings.TrimSpace(body)
 	return body
+}
+
+func (client *gitClientImpl) parseCommitStat(body string) *CommitStat {
+	stat := &CommitStat{}
+	if !statRe.MatchString(body) {
+		return nil
+	}
+
+	match := statRe.FindStringSubmatch(body)
+	for i, name := range statRe.SubexpNames() {
+		if i != 0 && name != "" {
+			number, err := strconv.Atoi(match[i])
+			if err != nil {
+				continue
+			}
+			switch name {
+			case "insertion":
+				stat.Insertion = number
+			case "deletion":
+				stat.Deletion = number
+			case "file":
+				stat.FileChanged = number
+			}
+		}
+	}
+	return stat
 }
