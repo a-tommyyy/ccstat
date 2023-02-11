@@ -18,7 +18,8 @@ var scopeCmd = &cobra.Command{
 	Short:      "Aggregate sum of insertion/deletion line count by commit scope",
 	ArgAliases: []string{"REPO_PATH"},
 	Run: func(cmd *cobra.Command, args []string) {
-		res, err := ccstat.AggByScope()
+		ccs := ccstat.New(nil)
+		res, err := ccs.AggByScope()
 		if err != nil {
 			os.Exit(1)
 		}

@@ -12,6 +12,9 @@ import (
 )
 
 const (
+	/*
+	 * git log format constants for git client pretty format argument
+	 */
 	hashKey      = "HASH"
 	hashFmt      = hashKey + ":%H"
 	treeKey      = "TREE"
@@ -26,8 +29,7 @@ const (
 	bodyFmt      = bodyKey + ":%b"
 	separator    = "@@__GIT_LOG_SEPARATOR__@@"
 	delimiter    = "@@__GIT_LOG_DELIMITER__@@"
-
-	logFmt = separator +
+	logFmt       = separator +
 		hashFmt + delimiter +
 		treeFmt + delimiter +
 		authorFmt + delimiter +
@@ -38,9 +40,16 @@ const (
 )
 
 var (
+	/*
+	 * Regexp for git log --shortstat
+	 */
 	statRe = regexp.MustCompile(
-		`(?P<file>[\d]*) files? changed(?:, (?P<insertion>[\d]*) insertions\(\+\))?(?:, (?P<deletion>[\d]*) deletions\(\-\))?`,
+		`(?P<file>[\d]*) files? changed(?:, (?P<insertion>[\d]*) insertions?\(\+\))?(?:, (?P<deletion>[\d]*) deletions?\(\-\))?`,
 	)
+
+	/*
+	 * Regexp for Conventional Commit Header
+	 */
 	headerRe = regexp.MustCompile(`^(?P<type>\w*)(?:\((?P<scope>.*)\))?: (?P<subject>.*)$`)
 )
 
@@ -69,43 +78,55 @@ type CommitStat struct {
 }
 
 type GitConfig struct {
-	Bin string
+	GitBin string
 }
 
 type GitClient interface {
-	CanExec() error
-	IsInsideWorkTree() error
-	Exec(string, ...string) (string, error)
 	Logs() ([]*ConventionalCommit, error)
+	IsInsideWorkTree() error
 }
 
 type gitClientImpl struct {
 	config *GitConfig
 }
 
-func NewGitClient(config *GitConfig) GitClient {
+func (client *gitClientImpl) Logs() ([]*ConventionalCommit, error) {
+	args := []string{
+		prettyFmt,
+		"--no-decorate",
+		"--no-merges",
+		"--shortstat",
+	}
+	res, err := client.exec("log", args...)
+	if err != nil {
+		return nil, err
+	}
+	return client.parseCommits(res)
+}
+
+func newGitClient(config *GitConfig) GitClient {
 	bin := "git"
-	if config != nil && config.Bin != "" {
-		bin = config.Bin
+	if config != nil && config.GitBin != "" {
+		bin = config.GitBin
 	}
 
 	return &gitClientImpl{
 		config: &GitConfig{
-			Bin: bin,
+			GitBin: bin,
 		},
 	}
 }
 
-func (client *gitClientImpl) CanExec() error {
-	_, err := exec.LookPath(client.config.Bin)
+func (client *gitClientImpl) canExec() error {
+	_, err := exec.LookPath(client.config.GitBin)
 	if err != nil {
-		return fmt.Errorf("\"%s\" not found", client.config.Bin)
+		return fmt.Errorf("\"%s\" not found", client.config.GitBin)
 	}
 	return nil
 }
 
 func (client *gitClientImpl) IsInsideWorkTree() error {
-	out, err := client.Exec("rev-parse", "--is-inside-work-tree")
+	out, err := client.exec("rev-parse", "--is-inside-work-tree")
 	if err != nil {
 		return err
 	}
@@ -120,35 +141,28 @@ func (client *gitClientImpl) IsInsideWorkTree() error {
 	return nil
 }
 
-func (client *gitClientImpl) Exec(subcmd string, args ...string) (string, error) {
+func (client *gitClientImpl) exec(subcmd string, args ...string) (string, error) {
+	// Check git command available
+	if err := client.canExec(); err != nil {
+		return "", err
+	}
+
+	// Build git sub-commands
 	commands := append([]string{subcmd}, args...)
 
+	// Run command
 	var out bytes.Buffer
-	cmd := exec.Command(client.config.Bin, commands...)
+	cmd := exec.Command(client.config.GitBin, commands...)
 	cmd.Stdout = &out
 	cmd.Stderr = io.Discard
-
 	cmd.Run()
+
+	// Handle command result
 	exitCode := cmd.ProcessState.ExitCode()
 	if exitCode != 0 {
 		return "", nil
 	}
-
 	return strings.TrimRight(strings.TrimSpace(out.String()), "\000"), nil
-}
-
-func (client *gitClientImpl) Logs() ([]*ConventionalCommit, error) {
-	args := []string{
-		prettyFmt,
-		"--no-decorate",
-		"--no-merges",
-		"--shortstat",
-	}
-	res, err := client.Exec("log", args...)
-	if err != nil {
-		return nil, err
-	}
-	return client.parseCommits(res)
 }
 
 func (client *gitClientImpl) parseCommits(logs string) ([]*ConventionalCommit, error) {
@@ -231,7 +245,7 @@ func (client *gitClientImpl) parseCommitBody(body string) string {
 func (client *gitClientImpl) parseCommitStat(body string) *CommitStat {
 	stat := &CommitStat{}
 	if !statRe.MatchString(body) {
-		return nil
+		return &CommitStat{}
 	}
 
 	match := statRe.FindStringSubmatch(body)
