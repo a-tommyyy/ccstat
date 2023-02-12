@@ -95,6 +95,6 @@ func (ccs *CCStat) aggregate(idx string, accum map[string]*Row, commit *Conventi
 	stat := commit.RawCommit.Stat
 	result.Insertion += stat.Insertion
 	result.Deletion += stat.Deletion
-	result.SumOfDiff = stat.Insertion + stat.Deletion
+	result.SumOfDiff = result.Insertion + result.Deletion
 	return accum
 }

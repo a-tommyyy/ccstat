@@ -27,6 +27,7 @@ const (
 	subjectFmt   = subjectKey + ":%s"
 	bodyKey      = "BODY"
 	bodyFmt      = bodyKey + ":%b"
+	statKey      = "STAT"
 	separator    = "@@__GIT_LOG_SEPARATOR__@@"
 	delimiter    = "@@__GIT_LOG_DELIMITER__@@"
 	logFmt       = separator +
@@ -35,7 +36,8 @@ const (
 		authorFmt + delimiter +
 		committerFmt + delimiter +
 		subjectFmt + delimiter +
-		bodyFmt
+		bodyFmt + delimiter +
+		statKey + ":"
 	prettyFmt = "--pretty=\"" + logFmt + "\""
 )
 
@@ -219,6 +221,7 @@ func (client *gitClientImpl) parseCommit(log string) *Commit {
 			commit.Subject = content
 		case bodyKey:
 			commit.Body = client.parseCommitBody(content)
+		case statKey:
 			commit.Stat = client.parseCommitStat(content)
 		}
 	}
