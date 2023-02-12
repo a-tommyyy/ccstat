@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/atomiyama/ccstat/pkg/gitcmd"
 )
 
 type Row struct {
@@ -21,8 +23,8 @@ type Result struct {
 }
 
 type CCStat struct {
-	gitClient GitClient
-	config    *Config
+	gitlogs GitLogs
+	config  *Config
 }
 
 type Config struct {
@@ -34,25 +36,22 @@ func New(cnf *Config) *CCStat {
 	if cnf == nil {
 		cnf = &Config{}
 	}
+	git := gitcmd.NewGit(nil)
 	return &CCStat{
-		config:    cnf,
-		gitClient: newGitClient(&GitConfig{GitBin: cnf.GitBin}),
+		config:  cnf,
+		gitlogs: &gitLogsImpl{git: git},
 	}
 }
 
-func (ccs *CCStat) AggByScope() (string, error) {
+func (ccs *CCStat) AggByScope(rev *RevDate) error {
 	back, err := ccs.workingDir()
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer back()
-	if err := ccs.gitClient.IsInsideWorkTree(); err != nil {
-		return "", err
-	}
-
-	commits, err := ccs.gitClient.Logs()
+	commits, err := ccs.gitlogs.Logs(rev)
 	if err != nil {
-		return "", err
+		return err
 	}
 	result := make(map[string]*Row)
 	for _, commit := range commits {
@@ -65,7 +64,7 @@ func (ccs *CCStat) AggByScope() (string, error) {
 	for key, value := range result {
 		fmt.Printf("SCOPE:%s\tINSERT:%v\tDELETE:%v\tSUM:%v\n", key, value.Insertion, value.Deletion, value.SumOfDiff)
 	}
-	return "", nil
+	return nil
 }
 
 func (ccs *CCStat) workingDir() (func() error, error) {

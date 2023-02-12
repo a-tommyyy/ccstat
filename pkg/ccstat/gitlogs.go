@@ -1,14 +1,12 @@
 package ccstat
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/atomiyama/ccstat/pkg/gitcmd"
 )
 
 const (
@@ -79,106 +77,58 @@ type CommitStat struct {
 	Deletion    int
 }
 
-type GitConfig struct {
-	GitBin string
+type GitLogs interface {
+	Logs(*RevDate) ([]*ConventionalCommit, error)
 }
 
-type GitClient interface {
-	Logs() ([]*ConventionalCommit, error)
-	IsInsideWorkTree() error
+type gitLogsImpl struct {
+	git gitcmd.Git
 }
 
-type gitClientImpl struct {
-	config *GitConfig
+type RevDate struct {
+	After  string
+	Before string
 }
 
-func (client *gitClientImpl) Logs() ([]*ConventionalCommit, error) {
+func (gitlogs *gitLogsImpl) Logs(rev *RevDate) ([]*ConventionalCommit, error) {
+	args := gitlogs.buildLogsArgs(rev)
+	res, err := gitlogs.git.Exec("log", args...)
+	if err != nil {
+		return nil, err
+	}
+	return gitlogs.parseCommits(res)
+}
+
+func (gitlogs *gitLogsImpl) buildLogsArgs(rev *RevDate) []string {
 	args := []string{
 		prettyFmt,
 		"--no-decorate",
 		"--no-merges",
 		"--shortstat",
 	}
-	res, err := client.exec("log", args...)
-	if err != nil {
-		return nil, err
-	}
-	return client.parseCommits(res)
-}
-
-func newGitClient(config *GitConfig) GitClient {
-	bin := "git"
-	if config != nil && config.GitBin != "" {
-		bin = config.GitBin
-	}
-
-	return &gitClientImpl{
-		config: &GitConfig{
-			GitBin: bin,
-		},
-	}
-}
-
-func (client *gitClientImpl) canExec() error {
-	_, err := exec.LookPath(client.config.GitBin)
-	if err != nil {
-		return fmt.Errorf("\"%s\" not found", client.config.GitBin)
-	}
-	return nil
-}
-
-func (client *gitClientImpl) IsInsideWorkTree() error {
-	out, err := client.exec("rev-parse", "--is-inside-work-tree")
-	if err != nil {
-		return err
-	}
-
-	if out != "true" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return err
+	if rev != nil {
+		if rev.After != "" {
+			args = append(args, fmt.Sprintf("--after=%s", rev.After))
 		}
-		return fmt.Errorf("\"%s\" is not git repository", cwd)
+		if rev.Before != "" {
+			args = append(args, fmt.Sprintf("--before=%s", rev.Before))
+		}
 	}
-	return nil
+	return args
 }
 
-func (client *gitClientImpl) exec(subcmd string, args ...string) (string, error) {
-	// Check git command available
-	if err := client.canExec(); err != nil {
-		return "", err
-	}
-
-	// Build git sub-commands
-	commands := append([]string{subcmd}, args...)
-
-	// Run command
-	var out bytes.Buffer
-	cmd := exec.Command(client.config.GitBin, commands...)
-	cmd.Stdout = &out
-	cmd.Stderr = io.Discard
-	cmd.Run()
-
-	// Handle command result
-	exitCode := cmd.ProcessState.ExitCode()
-	if exitCode != 0 {
-		return "", nil
-	}
-	return strings.TrimRight(strings.TrimSpace(out.String()), "\000"), nil
-}
-
-func (client *gitClientImpl) parseCommits(logs string) ([]*ConventionalCommit, error) {
+func (gitlogs *gitLogsImpl) parseCommits(logs string) ([]*ConventionalCommit, error) {
 	lines := strings.Split(logs, separator)[1:]
 
 	commits := make([]*ConventionalCommit, len(lines))
 	for i, line := range lines {
-		commits[i] = client.parseConventionalCommit(line)
+		commits[i] = gitlogs.parseConventionalCommit(line)
 	}
 	return commits, nil
 }
 
-func (client *gitClientImpl) parseConventionalCommit(log string) *ConventionalCommit {
-	commit := client.parseCommit(log)
+func (gitlogs *gitLogsImpl) parseConventionalCommit(log string) *ConventionalCommit {
+	commit := gitlogs.parseCommit(log)
 	conventionalCommit := &ConventionalCommit{RawCommit: commit}
 	if headerRe.MatchString(commit.Subject) {
 		match := headerRe.FindStringSubmatch(commit.Subject)
@@ -199,7 +149,7 @@ func (client *gitClientImpl) parseConventionalCommit(log string) *ConventionalCo
 	return conventionalCommit
 }
 
-func (client *gitClientImpl) parseCommit(log string) *Commit {
+func (gitlogs *gitLogsImpl) parseCommit(log string) *Commit {
 	segments := strings.Split(log, delimiter)
 	commit := &Commit{}
 
@@ -220,15 +170,15 @@ func (client *gitClientImpl) parseCommit(log string) *Commit {
 		case subjectKey:
 			commit.Subject = content
 		case bodyKey:
-			commit.Body = client.parseCommitBody(content)
+			commit.Body = gitlogs.parseCommitBody(content)
 		case statKey:
-			commit.Stat = client.parseCommitStat(content)
+			commit.Stat = gitlogs.parseCommitStat(content)
 		}
 	}
 	return commit
 }
 
-func (client *gitClientImpl) parseCommitBody(body string) string {
+func (gitlogs *gitLogsImpl) parseCommitBody(body string) string {
 	newLineDelimiter := "\n"
 	body = strings.NewReplacer(
 		"\r\n",
@@ -245,7 +195,7 @@ func (client *gitClientImpl) parseCommitBody(body string) string {
 	return body
 }
 
-func (client *gitClientImpl) parseCommitStat(body string) *CommitStat {
+func (gitlogs *gitLogsImpl) parseCommitStat(body string) *CommitStat {
 	stat := &CommitStat{}
 	if !statRe.MatchString(body) {
 		return &CommitStat{}

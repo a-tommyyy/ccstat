@@ -5,7 +5,6 @@ Copyright © 2023 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/atomiyama/ccstat/pkg/ccstat"
@@ -25,12 +24,27 @@ to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-		ccs := ccstat.New(nil)
-		res, err := ccs.AggByScope()
+		// Build revision range struct
+		after, _ := cmd.Flags().GetString("after")
+		before, _ := cmd.Flags().GetString("before")
+		rev := &ccstat.RevDate{After: after, Before: before}
+
+		// run
+		groupBy, err := cmd.Flags().GetString("group-by")
 		if err != nil {
 			os.Exit(1)
 		}
-		fmt.Println(res)
+		ccs := ccstat.New(nil)
+		switch groupBy {
+		case "scope":
+			err = ccs.AggByScope(rev)
+		case "type":
+			panic("Not implemented yet")
+			//ccs.AggByType()
+		}
+		if err != nil {
+			os.Exit(1)
+		}
 	},
 }
 
@@ -53,4 +67,7 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.Flags().StringP("after", "A", "", "Show commits more recent than a specific date")
+	rootCmd.Flags().StringP("before", "B", "", "Show commits older than a specific date")
+	rootCmd.Flags().StringP("group-by", "g", "scope", "Aggregate commits group by spicific segment; Must be one of 'scope' and 'type'")
 }
