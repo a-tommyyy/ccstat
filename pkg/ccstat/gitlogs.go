@@ -78,20 +78,21 @@ type CommitStat struct {
 }
 
 type GitLogs interface {
-	Logs(*RevDate) ([]*ConventionalCommit, error)
+	Logs(*Options) ([]*ConventionalCommit, error)
 }
 
 type gitLogsImpl struct {
 	git gitcmd.Git
 }
 
-type RevDate struct {
-	After  string
-	Before string
+type Options struct {
+	After      string
+	Before     string
+	FollowPath string
 }
 
-func (gitlogs *gitLogsImpl) Logs(rev *RevDate) ([]*ConventionalCommit, error) {
-	args := gitlogs.buildLogsArgs(rev)
+func (gitlogs *gitLogsImpl) Logs(opt *Options) ([]*ConventionalCommit, error) {
+	args := gitlogs.buildLogsArgs(opt)
 	res, err := gitlogs.git.Exec("log", args...)
 	if err != nil {
 		return nil, err
@@ -99,21 +100,25 @@ func (gitlogs *gitLogsImpl) Logs(rev *RevDate) ([]*ConventionalCommit, error) {
 	return gitlogs.parseCommits(res)
 }
 
-func (gitlogs *gitLogsImpl) buildLogsArgs(rev *RevDate) []string {
+func (gitlogs *gitLogsImpl) buildLogsArgs(opt *Options) []string {
 	args := []string{
 		prettyFmt,
 		"--no-decorate",
 		"--no-merges",
 		"--shortstat",
 	}
-	if rev != nil {
-		if rev.After != "" {
-			args = append(args, fmt.Sprintf("--after=%s", rev.After))
+	if opt != nil {
+		if opt.After != "" {
+			args = append(args, fmt.Sprintf("--after=%s", opt.After))
 		}
-		if rev.Before != "" {
-			args = append(args, fmt.Sprintf("--before=%s", rev.Before))
+		if opt.Before != "" {
+			args = append(args, fmt.Sprintf("--before=%s", opt.Before))
+		}
+		if opt.FollowPath != "" {
+			args = append(args, opt.FollowPath)
 		}
 	}
+	fmt.Println(strings.Join(args, " "))
 	return args
 }
 

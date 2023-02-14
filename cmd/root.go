@@ -27,7 +27,8 @@ to quickly create a Cobra application.`,
 		// Build revision range struct
 		after, _ := cmd.Flags().GetString("after")
 		before, _ := cmd.Flags().GetString("before")
-		rev := &ccstat.RevDate{After: after, Before: before}
+		follow, _ := cmd.Flags().GetString("follow")
+		rev := &ccstat.Options{After: after, Before: before, FollowPath: follow}
 
 		// run
 		groupBy, err := cmd.Flags().GetString("group-by")
@@ -70,4 +71,5 @@ func init() {
 	rootCmd.Flags().StringP("after", "A", "", "Show commits more recent than a specific date")
 	rootCmd.Flags().StringP("before", "B", "", "Show commits older than a specific date")
 	rootCmd.Flags().StringP("group-by", "g", "scope", "Aggregate commits group by spicific segment; Must be one of 'scope' and 'type'")
+	rootCmd.Flags().StringP("follow", "f", "", "Continue listing the history of a file beyond renames (works only for a single file).")
 }

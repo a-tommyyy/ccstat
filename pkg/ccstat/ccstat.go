@@ -43,13 +43,13 @@ func New(cnf *Config) *CCStat {
 	}
 }
 
-func (ccs *CCStat) AggByScope(rev *RevDate) error {
+func (ccs *CCStat) AggByScope(opt *Options) error {
 	back, err := ccs.workingDir()
 	if err != nil {
 		return err
 	}
 	defer back()
-	commits, err := ccs.gitlogs.Logs(rev)
+	commits, err := ccs.gitlogs.Logs(opt)
 	if err != nil {
 		return err
 	}
