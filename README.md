@@ -20,7 +20,9 @@ build   29          10
 ```
 
 ## Installation
-TBD
+```bash
+brew install atomiyama/tap/ccstat
+```
 
 
 ## Flags
