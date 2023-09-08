@@ -118,7 +118,6 @@ func (gitlogs *gitLogsImpl) buildLogsArgs(opt *Options) []string {
 			args = append(args, opt.FollowPath)
 		}
 	}
-	fmt.Println(strings.Join(args, " "))
 	return args
 }
 
